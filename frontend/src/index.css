@@ -510,6 +510,31 @@ a:hover { color: var(--accent-secondary); }
 }
 .form-input::placeholder { color: var(--text-muted); }
 
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.password-input-wrapper .form-input {
+  padding-right: 44px;
+}
+.password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color var(--transition-fast);
+}
+.password-toggle:hover {
+  color: var(--accent-primary);
+}
+
 .form-select option {
   background-color: var(--bg-secondary);
   color: var(--text-primary);

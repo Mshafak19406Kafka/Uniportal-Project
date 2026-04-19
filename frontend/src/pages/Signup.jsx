@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
+import { GraduationCap, Eye, EyeOff } from 'lucide-react';
 
 export default function Signup() {
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'student', program_id: '' });
   const [programs, setPrograms] = useState([]);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function Signup() {
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-header">
-          <div className="auth-logo">U</div>
+          <div className="auth-logo"><GraduationCap size={32} /></div>
           <h2>Create Account</h2>
           <p>Join UniPortal today</p>
         </div>
@@ -49,8 +51,24 @@ export default function Signup() {
           </div>
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input type="password" className="form-input" placeholder="Min 6 characters" value={form.password}
-              onChange={e => setForm({ ...form, password: e.target.value })} required id="signup-password" />
+            <div className="password-input-wrapper">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="form-input"
+                placeholder="Min 6 characters"
+                value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                required
+                id="signup-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           <div className="form-row">
             <div className="form-group">
