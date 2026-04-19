@@ -3,11 +3,17 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 
-// Delete old database for a clean fresh start
+// Clear tables for a fresh start instead of deleting file (prevents EBUSY)
 const dbPath = path.resolve(__dirname, 'database.sqlite');
-if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-
 const db = new sqlite3.Database(dbPath);
+
+async function clearDatabase() {
+  const tables = ['notifications', 'special_requests', 'waitlist', 'enrollments', 'sections', 'users', 'course_prerequisites', 'courses', 'programs', 'departments', 'colleges'];
+  for (const table of tables) {
+    await new Promise((resolve) => db.run(`DELETE FROM ${table}`, resolve));
+    await new Promise((resolve) => db.run(`DELETE FROM sqlite_sequence WHERE name='${table}'`, resolve));
+  }
+}
 
 const run = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -18,6 +24,7 @@ const run = (sql, params = []) =>
   });
 
 async function seed() {
+  await clearDatabase();
   const hash = await bcrypt.hash('password123', 10);
 
   db.serialize(() => {
@@ -86,11 +93,13 @@ async function seed() {
     db.run(`INSERT INTO departments (id, college_id, name, code) VALUES (4, 2, 'Physics', 'PHYS')`);
     db.run(`INSERT INTO departments (id, college_id, name, code) VALUES (5, 2, 'English Literature', 'LIT')`);
     db.run(`INSERT INTO departments (id, college_id, name, code) VALUES (6, 3, 'Business Administration', 'BUS')`);
+    db.run(`INSERT INTO departments (id, college_id, name, code) VALUES (7, 2, 'Biology', 'BIO')`);
 
     // ─── Seed: Programs ──────────────────────────────────────────────────────
     db.run(`INSERT INTO programs (id, department_id, name, degree_type, total_credits_required, core_credits_required, elective_credits_required, gened_credits_required, lab_credits_required) VALUES (1, 1, 'B.Sc. Computer Science', 'Bachelor', 120, 44, 36, 30, 10)`);
     db.run(`INSERT INTO programs (id, department_id, name, degree_type, total_credits_required, core_credits_required, elective_credits_required, gened_credits_required, lab_credits_required) VALUES (2, 2, 'B.Sc. Electrical Engineering', 'Bachelor', 130, 50, 40, 30, 10)`);
     db.run(`INSERT INTO programs (id, department_id, name, degree_type, total_credits_required, core_credits_required, elective_credits_required, gened_credits_required, lab_credits_required) VALUES (3, 3, 'B.Sc. Mathematics', 'Bachelor', 120, 42, 38, 30, 10)`);
+    db.run(`INSERT INTO programs (id, department_id, name, degree_type, total_credits_required, core_credits_required, elective_credits_required, gened_credits_required, lab_credits_required) VALUES (4, 7, 'B.Sc. Biology', 'Bachelor', 120, 40, 40, 30, 10)`);
 
     // ─── Seed: Courses ───────────────────────────────────────────────────────
     const courses = [
@@ -129,6 +138,10 @@ async function seed() {
       // Business
       [28, 6, 'Intro to Business', 'BUS101', 3, 'Elective', 'Business fundamentals.'],
       [29, 6, 'Entrepreneurship', 'BUS301', 3, 'Elective', 'Startup ecosystem, lean methodology.'],
+      // Bio & Advanced Physics
+      [30, 7, 'Cell Biology', 'BIO101', 4, 'Core', 'Structure and function of cells.'],
+      [31, 7, 'Genetics', 'BIO201', 4, 'Core', 'Heredity, genes, and DNA.'],
+      [32, 4, 'Quantum Mechanics', 'PHYS401', 4, 'Elective', 'Modern physics at the atomic level.'],
     ];
 
     const stmtCourse = db.prepare(
@@ -155,6 +168,8 @@ async function seed() {
       [17, 16], // Calc II requires Calc I
       [22, 21], // Phys II requires Phys I
       [27, 25], // Signals requires Circuits
+      [31, 30], // Genetics requires Cell Bio
+      [32, 22], // Quantum requires Phys II
     ];
     const stmtPrereq = db.prepare(`INSERT INTO course_prerequisites (course_id, prerequisite_course_id) VALUES (?,?)`);
     for (const p of prereqs) stmtPrereq.run(p);
@@ -170,11 +185,16 @@ async function seed() {
     db.run(`INSERT INTO users (id, name, email, password, role, department_id) VALUES (5, 'Dr. Emmy Noether', 'noether@university.edu', '${hash}', 'faculty', 3)`);
     db.run(`INSERT INTO users (id, name, email, password, role, department_id) VALUES (6, 'Dr. Richard Feynman', 'feynman@university.edu', '${hash}', 'faculty', 4)`);
     db.run(`INSERT INTO users (id, name, email, password, role, department_id) VALUES (7, 'Prof. Shakespeare', 'shakespeare@university.edu', '${hash}', 'faculty', 5)`);
+    db.run(`INSERT INTO users (id, name, email, password, role, department_id) VALUES (12, 'Dr. Stephen Hawking', 'hawking@university.edu', '${hash}', 'faculty', 4)`);
+    db.run(`INSERT INTO users (id, name, email, password, role, department_id) VALUES (13, 'Dr. Richard Dawkins', 'dawkins@university.edu', '${hash}', 'faculty', 7)`);
+    
     // Students (program_id set)
     db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (8, 'Alice Johnson', 'alice@student.edu', '${hash}', 'student', 1)`);
     db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (9, 'Bob Smith', 'bob@student.edu', '${hash}', 'student', 1)`);
     db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (10, 'Charlie Davis', 'charlie@student.edu', '${hash}', 'student', 2)`);
     db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (11, 'Diana Martinez', 'diana@student.edu', '${hash}', 'student', 3)`);
+    db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (14, 'Emily White', 'emily@student.edu', '${hash}', 'student', 4)`);
+    db.run(`INSERT INTO users (id, name, email, password, role, program_id) VALUES (15, 'Frank Green', 'frank@student.edu', '${hash}', 'student', 4)`);
 
     // ─── Seed: Sections (Fall 2026) ──────────────────────────────────────────
     const sections = [
@@ -240,8 +260,8 @@ async function seed() {
     console.log('');
     console.log('Test Accounts (all passwords: password123):');
     console.log('  Admin:   admin@university.edu');
-    console.log('  Faculty: turing@university.edu, hopper@university.edu, tesla@university.edu');
-    console.log('  Student: alice@student.edu, bob@student.edu, charlie@student.edu');
+    console.log('  Faculty: turing@university.edu, hopper@university.edu, tesla@university.edu, hawking@university.edu, dawkins@university.edu');
+    console.log('  Student: alice@student.edu, bob@student.edu, charlie@student.edu, emily@student.edu, frank@student.edu');
   });
 }
 
