@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { useToast } from '../components/Toast';
-import { ClipboardList, Clock, DoorOpen, Users, CheckCircle2, BookOpen } from 'lucide-react';
+import { ClipboardList, Clock, DoorOpen, Users, CheckCircle2, BookOpen, Video, Upload, Trash2, FileVideo, X } from 'lucide-react';
 
 export default function FacultyDashboard({ activeView }) {
   const toast = useToast();
@@ -24,6 +24,7 @@ export default function FacultyDashboard({ activeView }) {
   const [videoFile, setVideoFile] = useState(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const fetchSections = useCallback(async () => {
     try { const { data } = await api.get('/faculty/my-sections'); setSections(data); } catch (e) {}
@@ -123,29 +124,60 @@ export default function FacultyDashboard({ activeView }) {
     }
 
     setUploadingVideo(true);
+    setUploadProgress(0);
 
     try {
-      // Read file as base64
+      // Read file as base64 with progress simulation
       const reader = new FileReader();
+      
+      // Simulate progress during file reading
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 5, 40));
+      }, 100);
+      
       reader.onloadend = async () => {
+        clearInterval(progressInterval);
+        setUploadProgress(50);
+        
         const base64data = reader.result;
         
-        await api.post('/faculty/upload-video', {
-          courseId: videoModal.section.course_id,
-          title: videoTitle || 'Course Video',
-          videoData: base64data,
-          contentType: videoFile.type
-        });
-        
-        toast('Video uploaded successfully!', 'success');
-        setVideoModal(null);
-        setVideoFile(null);
-        setVideoTitle('');
+        try {
+          await api.post('/faculty/upload-video', {
+            courseId: videoModal.section.course_id,
+            title: videoTitle || 'Course Video',
+            videoData: base64data,
+            contentType: videoFile.type
+          });
+          
+          setUploadProgress(100);
+          toast('Video uploaded successfully!', 'success');
+          
+          setTimeout(() => {
+            setVideoModal(null);
+            setVideoFile(null);
+            setVideoTitle('');
+            setUploadingVideo(false);
+            setUploadProgress(0);
+          }, 500);
+        } catch (e) {
+          toast(e.response?.data?.error || 'Failed to upload video', 'error');
+          setUploadingVideo(false);
+          setUploadProgress(0);
+        }
       };
+      
+      reader.onerror = () => {
+        clearInterval(progressInterval);
+        toast('Failed to read video file', 'error');
+        setUploadingVideo(false);
+        setUploadProgress(0);
+      };
+      
       reader.readAsDataURL(videoFile);
     } catch (e) {
-      toast(e.response?.data?.error || 'Failed to upload video', 'error');
+      toast('Failed to upload video', 'error');
       setUploadingVideo(false);
+      setUploadProgress(0);
     }
   };
 
@@ -196,10 +228,11 @@ export default function FacultyDashboard({ activeView }) {
               </div>
               <button 
                 className="btn btn-primary btn-sm" 
-                style={{ width: '100%', marginTop: 8 }}
+                style={{ width: '100%', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 onClick={() => openVideoModal(s)}
               >
-                {s.hasVideo ? '🎬 Manage Video' : '🎬 Upload Video'}
+                <Video size={16} />
+                {s.hasVideo ? 'Manage Video' : 'Upload Video'}
               </button>
             </div>
           ))}
@@ -371,13 +404,15 @@ export default function FacultyDashboard({ activeView }) {
           <div className="modal" style={{ maxWidth: 500 }}>
             <div className="modal-header">
               <h3 className="modal-title">Course Video: {videoModal.section.course_name}</h3>
-              <button className="modal-close" onClick={() => setVideoModal(null)}>✕</button>
+              <button className="modal-close" onClick={() => setVideoModal(null)} disabled={uploadingVideo}><X size={20} /></button>
             </div>
             
             <div style={{ padding: 20 }}>
               {videoModal.hasVideo ? (
                 <div style={{ textAlign: 'center', padding: 20 }}>
-                  <div style={{ fontSize: '3rem', marginBottom: 16 }}>🎬</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <Video size={48} color="var(--accent-primary)" />
+                  </div>
                   <p style={{ fontWeight: 600, marginBottom: 8 }}>{videoModal.video.title}</p>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>
                     Uploaded on {new Date(videoModal.video.created_at).toLocaleDateString()}
@@ -388,9 +423,36 @@ export default function FacultyDashboard({ activeView }) {
                 </div>
               ) : (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
-                  <div style={{ fontSize: '3rem', marginBottom: 16 }}>📹</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <FileVideo size={48} color="var(--text-secondary)" />
+                  </div>
                   <p>No video uploaded for this course</p>
                   <p style={{ fontSize: '0.8rem', marginTop: 8 }}>Max file size: 100MB (MP4, WebM)</p>
+                </div>
+              )}
+              
+              {/* Upload Progress Bar */}
+              {uploadingVideo && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.85rem' }}>
+                    <span>Uploading...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div style={{ 
+                    width: '100%', 
+                    height: 8, 
+                    background: 'var(--bg-elevated)', 
+                    borderRadius: 4,
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${uploadProgress}%`,
+                      height: '100%',
+                      background: 'var(--accent-primary)',
+                      borderRadius: 4,
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
                 </div>
               )}
               
@@ -433,7 +495,13 @@ export default function FacultyDashboard({ activeView }) {
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setVideoModal(null)} disabled={uploadingVideo}>Cancel</button>
               {videoModal.hasVideo && (
-                <button className="btn btn-danger" onClick={handleDeleteVideo} disabled={uploadingVideo}>
+                <button 
+                  className="btn btn-danger" 
+                  onClick={handleDeleteVideo} 
+                  disabled={uploadingVideo}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Trash2 size={16} />
                   Delete Video
                 </button>
               )}
@@ -441,8 +509,19 @@ export default function FacultyDashboard({ activeView }) {
                 className="btn btn-primary" 
                 onClick={handleVideoUpload}
                 disabled={!videoFile || uploadingVideo}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >
-                {uploadingVideo ? 'Uploading...' : videoModal.hasVideo ? 'Replace Video' : 'Upload Video'}
+                {uploadingVideo ? (
+                  <>
+                    <Upload size={16} />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} />
+                    {videoModal.hasVideo ? 'Replace Video' : 'Upload Video'}
+                  </>
+                )}
               </button>
             </div>
           </div>
