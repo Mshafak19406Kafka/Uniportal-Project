@@ -177,6 +177,8 @@ router.post('/upload-video', verifyToken, isFacultyOrAdmin, async (req, res) => 
     const { courseId, title, videoData, contentType } = req.body;
     const uploadedBy = req.user.id;
 
+    console.log('Video upload request:', { courseId, title, contentType, hasVideoData: !!videoData });
+
     if (!courseId || !videoData || !contentType) {
       return res.status(400).json({ error: 'Course ID, video data, and content type are required' });
     }
@@ -190,6 +192,8 @@ router.post('/upload-video', verifyToken, isFacultyOrAdmin, async (req, res) => 
     // Check file size (100MB max, base64 increases size by ~33%)
     const base64Data = videoData.replace(/^data:.*;base64,/, '');
     const fileSize = Buffer.byteLength(base64Data, 'base64');
+    console.log('Video file size:', (fileSize / (1024 * 1024)).toFixed(2), 'MB');
+    
     if (fileSize > 100 * 1024 * 1024) {
       return res.status(400).json({ error: 'Video file too large. Max 100MB.' });
     }
@@ -210,15 +214,17 @@ router.post('/upload-video', verifyToken, isFacultyOrAdmin, async (req, res) => 
     await runAsync('DELETE FROM course_videos WHERE course_id = ?', [courseId]);
 
     // Insert new video
+    console.log('Inserting video into database...');
     const result = await runAsync(
       'INSERT INTO course_videos (course_id, uploaded_by, title, video_data, content_type, file_size) VALUES (?, ?, ?, ?, ?, ?)',
       [courseId, uploadedBy, title || 'Course Video', Buffer.from(base64Data, 'base64'), contentType, fileSize]
     );
 
+    console.log('Video uploaded successfully, ID:', result.id);
     res.json({ message: 'Video uploaded successfully', videoId: result.id });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
+    console.error('Video upload error:', e);
+    res.status(500).json({ error: e.message || 'Failed to upload video' });
   }
 });
 

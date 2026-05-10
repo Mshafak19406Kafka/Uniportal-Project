@@ -12,7 +12,9 @@ const studentRoutes = require('./routes/student');
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Increase body size limit for video uploads (150MB for base64 encoded videos)
+app.use(express.json({ limit: '150mb' }));
+app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
 // API Routes
 app.use('/api/auth', authRoutes);

@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: window.location.origin.includes('localhost') ? 'http://localhost:5000/api' : '/api',
+  timeout: 120000, // 2 minutes timeout for large video uploads
+  maxContentLength: 150 * 1024 * 1024, // 150MB
+  maxBodyLength: 150 * 1024 * 1024, // 150MB
 });
 
 // Attach JWT token to every request
