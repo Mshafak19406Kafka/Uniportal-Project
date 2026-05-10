@@ -3,15 +3,22 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 
-// Clear tables for a fresh start instead of deleting file (prevents EBUSY)
-const dbPath = path.resolve(__dirname, 'database.sqlite');
-const db = new sqlite3.Database(dbPath);
+// Import db.js to ensure schema is initialized first
+const { db } = require('./db');
+
+// Wait for db to be ready before seeding
+function waitForDb() {
+  return new Promise((resolve) => {
+    if (db.open) return resolve();
+    db.once('open', resolve);
+  });
+}
 
 async function clearDatabase() {
-  const tables = ['notifications', 'special_requests', 'waitlist', 'enrollments', 'sections', 'users', 'course_prerequisites', 'courses', 'programs', 'departments', 'colleges'];
+  const tables = ['payments', 'reviews', 'notifications', 'special_requests', 'waitlist', 'enrollments', 'sections', 'users', 'course_prerequisites', 'courses', 'programs', 'departments', 'colleges'];
   for (const table of tables) {
-    await new Promise((resolve) => db.run(`DELETE FROM ${table}`, resolve));
-    await new Promise((resolve) => db.run(`DELETE FROM sqlite_sequence WHERE name='${table}'`, resolve));
+    await new Promise((resolve) => db.run(`DELETE FROM ${table}`, () => resolve()));
+    await new Promise((resolve) => db.run(`DELETE FROM sqlite_sequence WHERE name='${table}'`, () => resolve()));
   }
 }
 
@@ -24,6 +31,9 @@ const run = (sql, params = []) =>
   });
 
 async function seed() {
+  // Wait for db.js to initialize schema first
+  await waitForDb();
+  await new Promise(r => setTimeout(r, 500)); // Small delay to ensure tables created
   await clearDatabase();
   const hash = await bcrypt.hash('password123', 10);
 
