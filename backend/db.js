@@ -172,6 +172,21 @@ function initializeSchema() {
       FOREIGN KEY(student_id) REFERENCES users(id),
       FOREIGN KEY(faculty_id) REFERENCES users(id)
     )`);
+
+    // --- Course Videos ---
+    db.run(`CREATE TABLE IF NOT EXISTS course_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      course_id INTEGER NOT NULL,
+      uploaded_by INTEGER NOT NULL,
+      title TEXT,
+      video_data BLOB NOT NULL,
+      content_type TEXT NOT NULL,
+      file_size INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(course_id) REFERENCES courses(id),
+      FOREIGN KEY(uploaded_by) REFERENCES users(id),
+      UNIQUE(course_id)
+    )`);
   });
 }
 

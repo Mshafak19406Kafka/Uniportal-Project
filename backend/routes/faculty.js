@@ -1,6 +1,6 @@
 const express = require('express');
 const { allAsync, getAsync, runAsync } = require('../db');
-const { verifyToken, isFaculty } = require('../middleware/auth');
+const { verifyToken, isFaculty, isFacultyOrAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -167,6 +167,104 @@ router.get('/my-sections/:id/waitlist', verifyToken, isFaculty, async (req, res)
     `, [req.params.id]);
     res.json(waitlisted);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── VIDEO MANAGEMENT ──────────────────────────────────────────────────────
+
+// POST /api/faculty/upload-video — upload video to course (Faculty/Admin)
+router.post('/upload-video', verifyToken, isFacultyOrAdmin, async (req, res) => {
+  try {
+    const { courseId, title, videoData, contentType } = req.body;
+    const uploadedBy = req.user.id;
+
+    if (!courseId || !videoData || !contentType) {
+      return res.status(400).json({ error: 'Course ID, video data, and content type are required' });
+    }
+
+    // Validate content type
+    const validTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    if (!validTypes.includes(contentType)) {
+      return res.status(400).json({ error: 'Invalid video format. Only MP4, WebM allowed.' });
+    }
+
+    // Check file size (50MB max, base64 increases size by ~33%)
+    const base64Data = videoData.replace(/^data:.*;base64,/, '');
+    const fileSize = Buffer.byteLength(base64Data, 'base64');
+    if (fileSize > 50 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Video file too large. Max 50MB.' });
+    }
+
+    // Faculty can only upload to their courses, admin can upload to any
+    if (req.user.role === 'faculty') {
+      const course = await getAsync(`
+        SELECT s.id FROM sections s
+        WHERE s.course_id = ? AND s.instructor_id = ?
+        LIMIT 1
+      `, [courseId, uploadedBy]);
+      if (!course) {
+        return res.status(403).json({ error: 'You can only upload videos to courses you teach' });
+      }
+    }
+
+    // Delete existing video if any
+    await runAsync('DELETE FROM course_videos WHERE course_id = ?', [courseId]);
+
+    // Insert new video
+    const result = await runAsync(
+      'INSERT INTO course_videos (course_id, uploaded_by, title, video_data, content_type, file_size) VALUES (?, ?, ?, ?, ?, ?)',
+      [courseId, uploadedBy, title || 'Course Video', Buffer.from(base64Data, 'base64'), contentType, fileSize]
+    );
+
+    res.json({ message: 'Video uploaded successfully', videoId: result.id });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/faculty/course-video/:courseId — check if course has video
+router.get('/course-video/:courseId', verifyToken, isFacultyOrAdmin, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    
+    const video = await getAsync(
+      'SELECT id, title, content_type, file_size, created_at FROM course_videos WHERE course_id = ?',
+      [courseId]
+    );
+    
+    res.json({ hasVideo: !!video, video: video || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/faculty/delete-video/:courseId — delete course video
+router.delete('/delete-video/:courseId', verifyToken, isFacultyOrAdmin, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const userId = req.user.id;
+
+    // Faculty can only delete their own videos, admin can delete any
+    if (req.user.role === 'faculty') {
+      const video = await getAsync(
+        'SELECT v.* FROM course_videos v WHERE v.course_id = ? AND v.uploaded_by = ?',
+        [courseId, userId]
+      );
+      if (!video) {
+        return res.status(403).json({ error: 'You can only delete videos you uploaded' });
+      }
+    }
+
+    const result = await runAsync('DELETE FROM course_videos WHERE course_id = ?', [courseId]);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    res.json({ message: 'Video deleted successfully' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

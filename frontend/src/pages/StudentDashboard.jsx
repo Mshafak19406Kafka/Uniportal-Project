@@ -66,6 +66,10 @@ export default function StudentDashboard({ activeView }) {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
+  // Video watching
+  const [videoPlayerModal, setVideoPlayerModal] = useState(null); // { courseId, courseName, hasVideo }
+  const [courseVideos, setCourseVideos] = useState({}); // Map of courseId -> video info
+
   const fetchBrowse = useCallback(async () => {
     try {
       const { data } = await api.get('/student/sections', { params: { search, category: filterCat, semester: filterSem } });
@@ -88,6 +92,26 @@ export default function StudentDashboard({ activeView }) {
   const fetchRequests = useCallback(async () => {
     try { const { data } = await api.get('/student/special-requests'); setRequests(data); } catch (e) {}
   }, []);
+
+  const checkCourseVideo = useCallback(async (courseId) => {
+    try {
+      const { data } = await api.get(`/student/course-video/${courseId}`);
+      setCourseVideos(prev => ({ ...prev, [courseId]: data }));
+    } catch (e) {}
+  }, []);
+
+  const openVideoPlayer = async (courseId, courseName) => {
+    try {
+      const { data } = await api.get(`/student/course-video/${courseId}`);
+      if (data.hasVideo) {
+        setVideoPlayerModal({ courseId, courseName, video: data.video });
+      } else {
+        toast('No video available for this course yet', 'info');
+      }
+    } catch (e) {
+      toast(e.response?.data?.error || 'Failed to load video', 'error');
+    }
+  };
 
   const fetchReviews = useCallback(async (courseId) => {
     try {
@@ -138,6 +162,13 @@ export default function StudentDashboard({ activeView }) {
       m[activeView]().finally(() => setLoading(false));
     }
   }, [activeView, fetchBrowse, fetchMyCourses, fetchWaitlist, fetchAudit, fetchRequests, loadingView, fetchReviews]);
+
+  // Check videos for enrolled courses
+  useEffect(() => {
+    if (activeView === 'my-courses' && myCourses.length > 0) {
+      myCourses.forEach(c => checkCourseVideo(c.course_id));
+    }
+  }, [activeView, myCourses, checkCourseVideo]);
 
   const handleEnroll = async (sectionId) => {
     // Open payment modal instead of directly enrolling
@@ -350,9 +381,22 @@ export default function StudentDashboard({ activeView }) {
                 <span><UserIcon size={14} className="mr-1" /> {c.instructor_name}</span>
                 <span><AwardIcon size={14} className="mr-1" /> {c.credits} Credits</span>
               </div>
-              <button className="btn btn-ghost btn-sm" style={{ width: '100%', color: 'var(--accent-rose)' }} onClick={() => handleDrop(c.section_id)}>
-                Drop Course
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button 
+                  className="btn btn-primary btn-sm" 
+                  style={{ flex: 1 }}
+                  onClick={() => openVideoPlayer(c.course_id, c.course_name)}
+                >
+                  {courseVideos[c.course_id]?.hasVideo ? '🎬 Watch Video' : '📹 No Video'}
+                </button>
+                <button 
+                  className="btn btn-ghost btn-sm" 
+                  style={{ color: 'var(--accent-rose)' }}
+                  onClick={() => handleDrop(c.section_id)}
+                >
+                  Drop
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -879,6 +923,48 @@ export default function StudentDashboard({ activeView }) {
                 `}</style>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Video Player Modal */}
+      {videoPlayerModal && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setVideoPlayerModal(null)}>
+          <div className="modal" style={{ maxWidth: 800, width: '90%' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">{videoPlayerModal.video.title}</h3>
+              <button className="modal-close" onClick={() => setVideoPlayerModal(null)}>✕</button>
+            </div>
+            
+            <div style={{ padding: 20 }}>
+              <video 
+                controls 
+                style={{ 
+                  width: '100%', 
+                  maxHeight: '60vh',
+                  borderRadius: 'var(--radius-md)',
+                  background: '#000'
+                }}
+                autoPlay
+              >
+                <source 
+                  src={`/api/student/watch-video/${videoPlayerModal.courseId}`} 
+                  type={videoPlayerModal.video.content_type} 
+                />
+                Your browser does not support the video tag.
+              </video>
+              
+              <div style={{ marginTop: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                <p>{videoPlayerModal.courseName}</p>
+                <p style={{ fontSize: '0.75rem' }}>
+                  Size: {(videoPlayerModal.video.file_size / (1024 * 1024)).toFixed(2)} MB
+                </p>
+              </div>
+            </div>
+            
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setVideoPlayerModal(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}

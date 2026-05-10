@@ -823,4 +823,71 @@ router.get('/payment-methods', verifyToken, async (req, res) => {
   });
 });
 
+// ─── COURSE VIDEOS ─────────────────────────────────────────────────────────
+
+// GET /api/student/course-video/:courseId - Check if course has video (enrolled students only)
+router.get('/course-video/:courseId', verifyToken, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const studentId = req.user.id;
+
+    // Check if student is enrolled in any section of this course
+    const enrollment = await getAsync(`
+      SELECT e.id FROM enrollments e
+      JOIN sections s ON e.section_id = s.id
+      WHERE s.course_id = ? AND e.user_id = ? AND e.status = 'enrolled'
+      LIMIT 1
+    `, [courseId, studentId]);
+
+    if (!enrollment) {
+      return res.status(403).json({ error: 'You must be enrolled to view course videos' });
+    }
+
+    const video = await getAsync(
+      'SELECT id, title, content_type, file_size, created_at FROM course_videos WHERE course_id = ?',
+      [courseId]
+    );
+
+    res.json({ hasVideo: !!video, video: video || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/student/watch-video/:courseId - Stream video (enrolled students only)
+router.get('/watch-video/:courseId', verifyToken, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const studentId = req.user.id;
+
+    // Check if student is enrolled
+    const enrollment = await getAsync(`
+      SELECT e.id FROM enrollments e
+      JOIN sections s ON e.section_id = s.id
+      WHERE s.course_id = ? AND e.user_id = ? AND e.status = 'enrolled'
+      LIMIT 1
+    `, [courseId, studentId]);
+
+    if (!enrollment) {
+      return res.status(403).json({ error: 'Access denied. Enroll in this course to watch videos.' });
+    }
+
+    const video = await getAsync(
+      'SELECT video_data, content_type, title FROM course_videos WHERE course_id = ?',
+      [courseId]
+    );
+
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found for this course' });
+    }
+
+    // Set headers for video streaming
+    res.setHeader('Content-Type', video.content_type);
+    res.setHeader('Content-Length', video.video_data.length);
+    res.send(video.video_data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

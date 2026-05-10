@@ -15,7 +15,7 @@ function waitForDb() {
 }
 
 async function clearDatabase() {
-  const tables = ['payments', 'reviews', 'notifications', 'special_requests', 'waitlist', 'enrollments', 'sections', 'users', 'course_prerequisites', 'courses', 'programs', 'departments', 'colleges'];
+  const tables = ['course_videos', 'payments', 'reviews', 'notifications', 'special_requests', 'waitlist', 'enrollments', 'sections', 'users', 'course_prerequisites', 'courses', 'programs', 'departments', 'colleges'];
   for (const table of tables) {
     await new Promise((resolve) => db.run(`DELETE FROM ${table}`, () => resolve()));
     await new Promise((resolve) => db.run(`DELETE FROM sqlite_sequence WHERE name='${table}'`, () => resolve()));

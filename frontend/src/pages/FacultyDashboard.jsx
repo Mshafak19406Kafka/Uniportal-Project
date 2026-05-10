@@ -19,6 +19,12 @@ export default function FacultyDashboard({ activeView }) {
   const [courseForm, setCourseForm] = useState({ course_code: '', course_name: '', description: '', credits: 3, department_id: '', new_department_name: '', category: 'Core' });
   const [sectionForm, setSectionForm] = useState({ course_id: '', semester: 'Fall', year: new Date().getFullYear(), max_seats: 30, schedule_time: '', room: '' });
 
+  // Video upload states
+  const [videoModal, setVideoModal] = useState(null); // { section: null, hasVideo: false, video: null }
+  const [videoFile, setVideoFile] = useState(null);
+  const [videoTitle, setVideoTitle] = useState('');
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+
   const fetchSections = useCallback(async () => {
     try { const { data } = await api.get('/faculty/my-sections'); setSections(data); } catch (e) {}
   }, []);
@@ -92,6 +98,69 @@ export default function FacultyDashboard({ activeView }) {
     } catch (e) { toast(e.response?.data?.error || 'Failed to create section', 'error'); }
   };
 
+  // Video management functions
+  const openVideoModal = async (section) => {
+    try {
+      const { data } = await api.get(`/faculty/course-video/${section.course_id}`);
+      setVideoModal({ section, hasVideo: data.hasVideo, video: data.video });
+      setVideoFile(null);
+      setVideoTitle(data.video?.title || '');
+    } catch (e) {
+      toast('Failed to check video status', 'error');
+    }
+  };
+
+  const handleVideoUpload = async () => {
+    if (!videoFile) {
+      toast('Please select a video file', 'error');
+      return;
+    }
+
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (videoFile.size > maxSize) {
+      toast('Video file too large. Max 50MB.', 'error');
+      return;
+    }
+
+    setUploadingVideo(true);
+
+    try {
+      // Read file as base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64data = reader.result;
+        
+        await api.post('/faculty/upload-video', {
+          courseId: videoModal.section.course_id,
+          title: videoTitle || 'Course Video',
+          videoData: base64data,
+          contentType: videoFile.type
+        });
+        
+        toast('Video uploaded successfully!', 'success');
+        setVideoModal(null);
+        setVideoFile(null);
+        setVideoTitle('');
+      };
+      reader.readAsDataURL(videoFile);
+    } catch (e) {
+      toast(e.response?.data?.error || 'Failed to upload video', 'error');
+      setUploadingVideo(false);
+    }
+  };
+
+  const handleDeleteVideo = async () => {
+    if (!confirm('Are you sure you want to delete this video?')) return;
+    
+    try {
+      await api.delete(`/faculty/delete-video/${videoModal.section.course_id}`);
+      toast('Video deleted successfully', 'success');
+      setVideoModal(null);
+    } catch (e) {
+      toast(e.response?.data?.error || 'Failed to delete video', 'error');
+    }
+  };
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   return (
@@ -125,6 +194,13 @@ export default function FacultyDashboard({ activeView }) {
                 <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => viewRoster(s)}>View Roster</button>
                 <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => viewWaitlist(s)}>Waitlist</button>
               </div>
+              <button 
+                className="btn btn-primary btn-sm" 
+                style={{ width: '100%', marginTop: 8 }}
+                onClick={() => openVideoModal(s)}
+              >
+                {s.hasVideo ? '🎬 Manage Video' : '🎬 Upload Video'}
+              </button>
             </div>
           ))}
         </div>
@@ -285,6 +361,90 @@ export default function FacultyDashboard({ activeView }) {
               )}
             </div>
             <div className="modal-actions"><button className="btn btn-ghost" onClick={() => setModalType(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Upload Modal */}
+      {videoModal && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setVideoModal(null)}>
+          <div className="modal" style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">Course Video: {videoModal.section.course_name}</h3>
+              <button className="modal-close" onClick={() => setVideoModal(null)}>✕</button>
+            </div>
+            
+            <div style={{ padding: 20 }}>
+              {videoModal.hasVideo ? (
+                <div style={{ textAlign: 'center', padding: 20 }}>
+                  <div style={{ fontSize: '3rem', marginBottom: 16 }}>🎬</div>
+                  <p style={{ fontWeight: 600, marginBottom: 8 }}>{videoModal.video.title}</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+                    Uploaded on {new Date(videoModal.video.created_at).toLocaleDateString()}
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Size: {(videoModal.video.file_size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: 16 }}>📹</div>
+                  <p>No video uploaded for this course</p>
+                  <p style={{ fontSize: '0.8rem', marginTop: 8 }}>Max file size: 50MB (MP4, WebM)</p>
+                </div>
+              )}
+              
+              <div style={{ marginTop: 20 }}>
+                <div className="form-group">
+                  <label className="form-label">Video Title</label>
+                  <input 
+                    className="form-input" 
+                    placeholder="e.g., Introduction to Course"
+                    value={videoTitle}
+                    onChange={(e) => setVideoTitle(e.target.value)}
+                    disabled={uploadingVideo}
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label className="form-label">Select Video File</label>
+                  <input 
+                    type="file" 
+                    accept="video/mp4,video/webm"
+                    onChange={(e) => setVideoFile(e.target.files[0])}
+                    disabled={uploadingVideo}
+                    style={{ 
+                      width: '100%', 
+                      padding: 10, 
+                      border: '1px dashed var(--border-color)',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-elevated)'
+                    }}
+                  />
+                  {videoFile && (
+                    <p style={{ fontSize: '0.8rem', marginTop: 8, color: 'var(--text-secondary)' }}>
+                      Selected: {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(2)} MB)
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setVideoModal(null)} disabled={uploadingVideo}>Cancel</button>
+              {videoModal.hasVideo && (
+                <button className="btn btn-danger" onClick={handleDeleteVideo} disabled={uploadingVideo}>
+                  Delete Video
+                </button>
+              )}
+              <button 
+                className="btn btn-primary" 
+                onClick={handleVideoUpload}
+                disabled={!videoFile || uploadingVideo}
+              >
+                {uploadingVideo ? 'Uploading...' : videoModal.hasVideo ? 'Replace Video' : 'Upload Video'}
+              </button>
+            </div>
           </div>
         </div>
       )}
