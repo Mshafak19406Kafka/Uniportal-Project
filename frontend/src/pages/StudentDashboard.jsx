@@ -651,7 +651,12 @@ export default function StudentDashboard({ activeView }) {
                       textAlign: 'left'
                     }}
                   >
-                    <img src={method.icon} alt={method.name} style={{ width: 32, height: 32 }} />
+                    <img 
+                      src={method.icon} 
+                      alt={method.name} 
+                      style={{ width: 32, height: 32, objectFit: 'contain' }} 
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.marginLeft = '0'; }}
+                    />
                     <span style={{ fontWeight: 500 }}>{method.name}</span>
                     {selectedPaymentMethod === method.id && <span style={{ marginLeft: 'auto', color: 'var(--accent-primary)' }}>✓</span>}
                   </button>
@@ -672,14 +677,19 @@ export default function StudentDashboard({ activeView }) {
                               padding: 10,
                               border: selectedUPIApp === app.id ? '2px solid ' + app.color : '1px solid var(--border-color)',
                               borderRadius: 'var(--radius-sm)',
-                              background: selectedUPIApp === app.id ? app.color + '10' : 'var(--bg-elevated)',
+                              background: selectedUPIApp === app.id ? app.color + '15' : 'var(--bg-elevated)',
                               cursor: 'pointer',
                               fontSize: '0.85rem',
                               color: selectedUPIApp === app.id ? app.color : 'inherit'
                             }}
                           >
-                            <img src={app.icon} alt={app.name} style={{ width: 20, height: 20 }} />
-                            {app.name}
+                            <img 
+                              src={app.icon} 
+                              alt={app.name} 
+                              style={{ width: 24, height: 24, objectFit: 'contain' }} 
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                            <span style={{ whiteSpace: 'nowrap' }}>{app.name}</span>
                           </button>
                         ))}
                       </div>

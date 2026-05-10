@@ -792,47 +792,31 @@ router.get('/payments', verifyToken, async (req, res) => {
 
 // GET /api/student/payment-methods - Get available payment methods
 router.get('/payment-methods', verifyToken, async (req, res) => {
-  // Inline SVG icons as data URIs
-  const upiIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="2" y="5" width="20" height="14" rx="2"/%3E%3Cpath d="M2 10h20"/%3E%3Ccircle cx="7" cy="15" r="1"/%3E%3Ccircle cx="12" cy="15" r="1"/%3E%3C/svg%3E';
-  
-  const creditIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="1" y="4" width="22" height="16" rx="2"/%3E%3Cline x1="1" y1="10" x2="23" y2="10"/%3E%3C/svg%3E';
-  
-  const debitIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="1" y="4" width="22" height="16" rx="2"/%3E%3Cline x1="1" y1="10" x2="23" y2="10"/%3E%3Ccircle cx="7" cy="16" r="1"/%3E%3C/svg%3E';
-  
-  const paytmIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%2300BAF2" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="4"/%3E%3Cpath d="M8 12h8M12 8v8" stroke-linecap="round"/%3E%3C/svg%3E';
-  
-  const phonepeIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%237236F4" stroke-width="2"%3E%3Cpath d="M12 2a10 10 0 0 1 10 10M12 12L22 2"/%3E%3Ccircle cx="12" cy="12" r="3"/%3E%3Cpath d="M12 15v7"/%3E%3C/svg%3E';
-  
-  const gpayIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="2"%3E%3Cpath d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="%234285F4"/%3E%3Cpath d="M9 12l2 2 4-4" stroke="%2334A853"/%3E%3C/svg%3E';
-  
-  const sliceIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23FF6B6B" stroke-width="2"%3E%3Cpath d="M12 2L2 7l10 5 10-5-10-5z"/%3E%3Cpath d="M2 17l10 5 10-5"/%3E%3Cpath d="M2 12l10 5 10-5"/%3E%3C/svg%3E';
-  
-  const credIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23000" stroke-width="2"%3E%3Ccircle cx="12" cy="12" r="10"/%3E%3Cpath d="M12 6v6l4 2" stroke-linecap="round"/%3E%3C/svg%3E';
-
+  // Use actual logo files from public/icons folder
   res.json({
     methods: [
       {
         id: 'UPI',
         name: 'UPI',
-        icon: upiIcon,
+        icon: '/icons/upi.svg',
         apps: [
-          { id: 'Paytm', name: 'Paytm', icon: paytmIcon, color: '#00BAF2' },
-          { id: 'PhonePe', name: 'PhonePe', icon: phonepeIcon, color: '#7236F4' },
-          { id: 'Google Pay', name: 'Google Pay', icon: gpayIcon, color: '#4285F4' },
-          { id: 'Slice', name: 'Slice', icon: sliceIcon, color: '#FF6B6B' },
-          { id: 'Cred', name: 'Cred', icon: credIcon, color: '#000000' }
+          { id: 'Paytm', name: 'Paytm', icon: '/icons/Paytm%20Logo.png', color: '#00BAF2' },
+          { id: 'PhonePe', name: 'PhonePe', icon: '/icons/Phonepay%20logo.png', color: '#7236F4' },
+          { id: 'Google Pay', name: 'Google Pay', icon: '/icons/Gpay%20logo.png', color: '#4285F4' },
+          { id: 'Slice', name: 'Slice', icon: '/icons/slice%20logo.png', color: '#FF6B6B' },
+          { id: 'Cred', name: 'Cred', icon: '/icons/CRED-Fintech-Logo-thumb.png', color: '#000000' }
         ]
       },
       {
         id: 'Credit Card',
         name: 'Credit Card',
-        icon: creditIcon,
+        icon: '/icons/Credit%20card%20logo.png',
         fields: ['cardNumber', 'cardHolder', 'expiryDate', 'cvv']
       },
       {
         id: 'Debit Card',
         name: 'Debit Card',
-        icon: debitIcon,
+        icon: '/icons/debit%20card%20logo.png',
         fields: ['cardNumber', 'cardHolder', 'expiryDate', 'cvv']
       }
     ]
