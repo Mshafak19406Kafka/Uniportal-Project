@@ -116,9 +116,9 @@ export default function FacultyDashboard({ activeView }) {
       return;
     }
 
-    const maxSize = 50 * 1024 * 1024; // 50MB
+    const maxSize = 100 * 1024 * 1024; // 100MB
     if (videoFile.size > maxSize) {
-      toast('Video file too large. Max 50MB.', 'error');
+      toast('Video file too large. Max 100MB.', 'error');
       return;
     }
 
@@ -390,7 +390,7 @@ export default function FacultyDashboard({ activeView }) {
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
                   <div style={{ fontSize: '3rem', marginBottom: 16 }}>📹</div>
                   <p>No video uploaded for this course</p>
-                  <p style={{ fontSize: '0.8rem', marginTop: 8 }}>Max file size: 50MB (MP4, WebM)</p>
+                  <p style={{ fontSize: '0.8rem', marginTop: 8 }}>Max file size: 100MB (MP4, WebM)</p>
                 </div>
               )}
               

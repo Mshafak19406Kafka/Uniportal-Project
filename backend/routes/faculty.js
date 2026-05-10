@@ -187,11 +187,11 @@ router.post('/upload-video', verifyToken, isFacultyOrAdmin, async (req, res) => 
       return res.status(400).json({ error: 'Invalid video format. Only MP4, WebM allowed.' });
     }
 
-    // Check file size (50MB max, base64 increases size by ~33%)
+    // Check file size (100MB max, base64 increases size by ~33%)
     const base64Data = videoData.replace(/^data:.*;base64,/, '');
     const fileSize = Buffer.byteLength(base64Data, 'base64');
-    if (fileSize > 50 * 1024 * 1024) {
-      return res.status(400).json({ error: 'Video file too large. Max 50MB.' });
+    if (fileSize > 100 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Video file too large. Max 100MB.' });
     }
 
     // Faculty can only upload to their courses, admin can upload to any
