@@ -256,6 +256,15 @@ async function seed() {
     db.run(`INSERT INTO notifications (user_id, type, message) VALUES (8, 'welcome', 'Welcome to Fall 2026 registration, Alice! Browse courses and start building your schedule.')`);
     db.run(`INSERT INTO notifications (user_id, type, message) VALUES (9, 'welcome', 'Welcome to Fall 2026 registration, Bob!')`);
 
+    // ─── Seed: Reviews ───────────────────────────────────────────────────────
+    // Sample reviews for courses (students must be enrolled to review)
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (1, 8, 5, 'Excellent introduction to programming! Dr. Turing made Python easy to understand.')`);
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (1, 9, 4, 'Great course, but the assignments were a bit challenging.')`);
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (2, 8, 5, 'Data Structures is fundamental - this course prepared me well for technical interviews.')`);
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (16, 8, 4, 'Calculus I was tough but Prof. Noether explains concepts clearly.')`);
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (21, 8, 5, 'Physics I with Dr. Feynman was amazing. Loved the lab experiments!')`);
+    db.run(`INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (23, 8, 4, 'Technical Communication helped improve my writing skills for engineering reports.')`);
+
     console.log('✅ Database seeded successfully with university data!');
     console.log('');
     console.log('Test Accounts (all passwords: password123):');

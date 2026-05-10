@@ -76,15 +76,21 @@ router.get('/sections', verifyToken, async (req, res) => {
       SELECT s.*, c.course_name, c.course_code, c.credits, c.category, c.description,
              c.id as course_id,
              u.name as instructor_name,
+             d.name as department_name, d.code as department_code,
+             col.name as college_name,
              COUNT(e.id) as enrolled_count,
              (SELECT COUNT(*) FROM waitlist w WHERE w.section_id = s.id) as waitlist_count,
              (SELECT GROUP_CONCAT(pc.course_code) 
               FROM course_prerequisites cp
               JOIN courses pc ON cp.prerequisite_course_id = pc.id
-              WHERE cp.course_id = c.id) as prerequisites
+              WHERE cp.course_id = c.id) as prerequisites,
+             (SELECT ROUND(AVG(rating), 1) FROM reviews WHERE course_id = c.id) as avg_rating,
+             (SELECT COUNT(*) FROM reviews WHERE course_id = c.id) as review_count
       FROM sections s
       JOIN courses c ON s.course_id = c.id
       LEFT JOIN users u ON s.instructor_id = u.id
+      LEFT JOIN departments d ON c.department_id = d.id
+      LEFT JOIN colleges col ON d.college_id = col.id
       LEFT JOIN enrollments e ON s.id = e.section_id AND e.status = 'enrolled'
       WHERE 1=1
     `;
@@ -109,11 +115,15 @@ router.get('/my-courses', verifyToken, async (req, res) => {
       SELECT e.id as enrollment_id, e.status, e.enrolled_at,
              s.id as section_id, s.semester, s.year, s.schedule_time, s.room,
              c.course_name, c.course_code, c.credits, c.category,
-             u.name as instructor_name
+             u.name as instructor_name,
+             d.name as department_name, d.code as department_code,
+             col.name as college_name
       FROM enrollments e
       JOIN sections s ON e.section_id = s.id
       JOIN courses c ON s.course_id = c.id
       LEFT JOIN users u ON s.instructor_id = u.id
+      LEFT JOIN departments d ON c.department_id = d.id
+      LEFT JOIN colleges col ON d.college_id = col.id
       WHERE e.user_id = ? AND e.status = 'enrolled'
       ORDER BY c.course_code
     `, [req.user.id]);
@@ -501,6 +511,332 @@ router.get('/special-requests', verifyToken, async (req, res) => {
     `, [req.user.id]);
     res.json(requests);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── REVIEWS API ─────────────────────────────────────────────────────────────
+
+// GET /api/student/reviews/:courseId - Get reviews for a course with stats
+router.get('/reviews/:courseId', verifyToken, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    // Get all reviews for the course
+    const reviews = await allAsync(`
+      SELECT r.*, u.name as student_name
+      FROM reviews r
+      JOIN users u ON r.student_id = u.id
+      WHERE r.course_id = ?
+      ORDER BY r.created_at DESC
+    `, [courseId]);
+
+    // Get average rating and count
+    const stats = await getAsync(`
+      SELECT COUNT(*) as count, ROUND(AVG(rating), 1) as average
+      FROM reviews
+      WHERE course_id = ?
+    `, [courseId]);
+
+    // Check if current user has already reviewed
+    const userReview = await getAsync(`
+      SELECT * FROM reviews
+      WHERE course_id = ? AND student_id = ?
+    `, [courseId, req.user.id]);
+
+    res.json({
+      reviews,
+      stats: {
+        count: stats?.count || 0,
+        average: stats?.average || 0
+      },
+      userHasReviewed: !!userReview,
+      userReview: userReview || null
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/student/reviews - Add a review
+router.post('/reviews', verifyToken, async (req, res) => {
+  try {
+    const { courseId, rating, comment } = req.body;
+    const studentId = req.user.id;
+
+    if (!courseId || !rating) {
+      return res.status(400).json({ error: 'Course ID and rating are required' });
+    }
+
+    if (rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+
+    // Check if already reviewed
+    const existing = await getAsync(
+      'SELECT * FROM reviews WHERE course_id = ? AND student_id = ?',
+      [courseId, studentId]
+    );
+    if (existing) {
+      return res.status(400).json({ error: 'You have already reviewed this course' });
+    }
+
+    // Check if student is enrolled in this course
+    const enrolled = await getAsync(`
+      SELECT e.* FROM enrollments e
+      JOIN sections s ON e.section_id = s.id
+      WHERE e.user_id = ? AND s.course_id = ? AND e.status = 'enrolled'
+    `, [studentId, courseId]);
+
+    if (!enrolled) {
+      return res.status(400).json({ error: 'You must be enrolled in this course to leave a review' });
+    }
+
+    const result = await runAsync(
+      'INSERT INTO reviews (course_id, student_id, rating, comment) VALUES (?, ?, ?, ?)',
+      [courseId, studentId, rating, comment || '']
+    );
+
+    res.status(201).json({
+      id: result.id,
+      course_id: courseId,
+      rating,
+      comment,
+      message: 'Review submitted successfully'
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/student/reviews/:id - Update own review
+router.put('/reviews/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rating, comment } = req.body;
+    const studentId = req.user.id;
+
+    if (rating && (rating < 1 || rating > 5)) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+
+    // Verify ownership
+    const review = await getAsync(
+      'SELECT * FROM reviews WHERE id = ? AND student_id = ?',
+      [id, studentId]
+    );
+    if (!review) {
+      return res.status(404).json({ error: 'Review not found or not authorized' });
+    }
+
+    await runAsync(
+      'UPDATE reviews SET rating = ?, comment = ? WHERE id = ?',
+      [rating || review.rating, comment !== undefined ? comment : review.comment, id]
+    );
+
+    res.json({ message: 'Review updated successfully' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/student/reviews/:id - Delete own review
+router.delete('/reviews/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studentId = req.user.id;
+
+    const result = await runAsync(
+      'DELETE FROM reviews WHERE id = ? AND student_id = ?',
+      [id, studentId]
+    );
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Review not found or not authorized' });
+    }
+
+    res.json({ message: 'Review deleted successfully' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── PAYMENTS API ───────────────────────────────────────────────────────────
+
+// POST /api/student/process-payment - Process payment for course enrollment
+router.post('/process-payment', verifyToken, async (req, res) => {
+  try {
+    const { sectionId, paymentMethod, upiApp, cardDetails } = req.body;
+    const studentId = req.user.id;
+
+    if (!sectionId || !paymentMethod) {
+      return res.status(400).json({ error: 'Section ID and payment method are required' });
+    }
+
+    // Valid payment methods
+    const validMethods = ['UPI', 'Credit Card', 'Debit Card'];
+    if (!validMethods.includes(paymentMethod)) {
+      return res.status(400).json({ error: 'Invalid payment method' });
+    }
+
+    // Valid UPI apps
+    if (paymentMethod === 'UPI' && upiApp) {
+      const validUPIApps = ['Paytm', 'PhonePe', 'Google Pay', 'Slice', 'Cred'];
+      if (!validUPIApps.includes(upiApp)) {
+        return res.status(400).json({ error: 'Invalid UPI app' });
+      }
+    }
+
+    // Get section details with course and faculty info
+    const section = await getAsync(`
+      SELECT s.*, c.course_name, c.course_code, c.credits, c.id as course_id,
+             u.id as faculty_id, u.name as faculty_name
+      FROM sections s
+      JOIN courses c ON s.course_id = c.id
+      LEFT JOIN users u ON s.instructor_id = u.id
+      WHERE s.id = ?
+    `, [sectionId]);
+
+    if (!section) {
+      return res.status(404).json({ error: 'Section not found' });
+    }
+
+    // Check if already enrolled
+    const existing = await getAsync(
+      'SELECT * FROM enrollments WHERE user_id = ? AND section_id = ? AND status = ?',
+      [studentId, sectionId, 'enrolled']
+    );
+    if (existing) {
+      return res.status(400).json({ error: 'Already enrolled in this course' });
+    }
+
+    // Calculate amount based on credits (₹2000 per credit)
+    const amountPerCredit = 2000;
+    const totalAmount = section.credits * amountPerCredit;
+
+    // Simulate payment processing
+    const transactionId = `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    
+    // In a real app, you would integrate with actual payment gateway here
+    // For demo, we simulate successful payment after 1 second delay
+    
+    // Create enrollment first (status: pending_payment)
+    const enrollmentResult = await runAsync(
+      'INSERT INTO enrollments (user_id, section_id, status) VALUES (?, ?, ?)',
+      [studentId, sectionId, 'enrolled']
+    );
+
+    // Create payment record
+    const paymentResult = await runAsync(
+      `INSERT INTO payments (enrollment_id, student_id, faculty_id, amount, payment_method, upi_app, status, transaction_id, paid_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [enrollmentResult.id, studentId, section.faculty_id || null, totalAmount, paymentMethod, upiApp || null, 'completed', transactionId]
+    );
+
+    // Send notification to faculty
+    if (section.faculty_id) {
+      await runAsync(
+        'INSERT INTO notifications (user_id, type, message) VALUES (?, ?, ?)',
+        [section.faculty_id, 'payment_received', 
+         `Payment of ₹${totalAmount} received from student for ${section.course_code} - ${section.course_name}`]
+      );
+    }
+
+    // Send notification to student
+    await runAsync(
+      'INSERT INTO notifications (user_id, type, message) VALUES (?, ?, ?)',
+      [studentId, 'payment_success', 
+       `Successfully paid ₹${totalAmount} for ${section.course_code} via ${paymentMethod}${upiApp ? ` (${upiApp})` : ''}. Transaction ID: ${transactionId}`]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Payment successful! Enrolled in ${section.course_name}`,
+      transactionId,
+      amount: totalAmount,
+      paymentMethod,
+      upiApp,
+      enrollmentId: enrollmentResult.id,
+      paymentId: paymentResult.id
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/student/payments - Get student's payment history
+router.get('/payments', verifyToken, async (req, res) => {
+  try {
+    const payments = await allAsync(`
+      SELECT p.*, c.course_name, c.course_code, s.semester, s.year,
+             u.name as faculty_name
+      FROM payments p
+      JOIN enrollments e ON p.enrollment_id = e.id
+      JOIN sections s ON e.section_id = s.id
+      JOIN courses c ON s.course_id = c.id
+      LEFT JOIN users u ON p.faculty_id = u.id
+      WHERE p.student_id = ?
+      ORDER BY p.paid_at DESC
+    `, [req.user.id]);
+
+    res.json(payments);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/student/payment-methods - Get available payment methods
+router.get('/payment-methods', verifyToken, async (req, res) => {
+  // Inline SVG icons as data URIs
+  const upiIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="2" y="5" width="20" height="14" rx="2"/%3E%3Cpath d="M2 10h20"/%3E%3Ccircle cx="7" cy="15" r="1"/%3E%3Ccircle cx="12" cy="15" r="1"/%3E%3C/svg%3E';
+  
+  const creditIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="1" y="4" width="22" height="16" rx="2"/%3E%3Cline x1="1" y1="10" x2="23" y2="10"/%3E%3C/svg%3E';
+  
+  const debitIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"%3E%3Crect x="1" y="4" width="22" height="16" rx="2"/%3E%3Cline x1="1" y1="10" x2="23" y2="10"/%3E%3Ccircle cx="7" cy="16" r="1"/%3E%3C/svg%3E';
+  
+  const paytmIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%2300BAF2" stroke-width="2"%3E%3Crect x="3" y="3" width="18" height="18" rx="4"/%3E%3Cpath d="M8 12h8M12 8v8" stroke-linecap="round"/%3E%3C/svg%3E';
+  
+  const phonepeIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%237236F4" stroke-width="2"%3E%3Cpath d="M12 2a10 10 0 0 1 10 10M12 12L22 2"/%3E%3Ccircle cx="12" cy="12" r="3"/%3E%3Cpath d="M12 15v7"/%3E%3C/svg%3E';
+  
+  const gpayIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="2"%3E%3Cpath d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="%234285F4"/%3E%3Cpath d="M9 12l2 2 4-4" stroke="%2334A853"/%3E%3C/svg%3E';
+  
+  const sliceIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23FF6B6B" stroke-width="2"%3E%3Cpath d="M12 2L2 7l10 5 10-5-10-5z"/%3E%3Cpath d="M2 17l10 5 10-5"/%3E%3Cpath d="M2 12l10 5 10-5"/%3E%3C/svg%3E';
+  
+  const credIcon = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23000" stroke-width="2"%3E%3Ccircle cx="12" cy="12" r="10"/%3E%3Cpath d="M12 6v6l4 2" stroke-linecap="round"/%3E%3C/svg%3E';
+
+  res.json({
+    methods: [
+      {
+        id: 'UPI',
+        name: 'UPI',
+        icon: upiIcon,
+        apps: [
+          { id: 'Paytm', name: 'Paytm', icon: paytmIcon, color: '#00BAF2' },
+          { id: 'PhonePe', name: 'PhonePe', icon: phonepeIcon, color: '#7236F4' },
+          { id: 'Google Pay', name: 'Google Pay', icon: gpayIcon, color: '#4285F4' },
+          { id: 'Slice', name: 'Slice', icon: sliceIcon, color: '#FF6B6B' },
+          { id: 'Cred', name: 'Cred', icon: credIcon, color: '#000000' }
+        ]
+      },
+      {
+        id: 'Credit Card',
+        name: 'Credit Card',
+        icon: creditIcon,
+        fields: ['cardNumber', 'cardHolder', 'expiryDate', 'cvv']
+      },
+      {
+        id: 'Debit Card',
+        name: 'Debit Card',
+        icon: debitIcon,
+        fields: ['cardNumber', 'cardHolder', 'expiryDate', 'cvv']
+      }
+    ]
+  });
 });
 
 module.exports = router;

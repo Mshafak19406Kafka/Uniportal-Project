@@ -1,7 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
 import { useToast } from '../components/Toast';
-import { BookOpen, Clock, User, Award, DoorOpen, Users } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
+
+// Custom SVG Icons
+const ClockIcon = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="12,6 12,12 16,14"/>
+  </svg>
+);
+
+const UserIcon = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+
+const AwardIcon = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="8" r="7"/>
+    <polyline points="8.21,13.89 7,23 12,20 17,23 15.79,13.88"/>
+  </svg>
+);
+
+const DoorOpenIcon = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M13 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/>
+    <path d="M13 3v18"/>
+    <path d="M9 10h2"/>
+  </svg>
+);
 
 export default function StudentDashboard({ activeView }) {
   const toast = useToast();
@@ -18,8 +48,23 @@ export default function StudentDashboard({ activeView }) {
   const [filterSem, setFilterSem] = useState('Fall');
 
   // Modal
-  const [modal, setModal] = useState(null); // 'prereq_override'
+  const [modal, setModal] = useState(null); // 'prereq_override', 'reviews', 'payment'
   const [modalData, setModalData] = useState({});
+
+  // Reviews
+  const [reviews, setReviews] = useState([]);
+  const [reviewStats, setReviewStats] = useState({ count: 0, average: 0 });
+  const [userHasReviewed, setUserHasReviewed] = useState(false);
+  const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
+
+  // Payment
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
+  const [selectedUPIApp, setSelectedUPIApp] = useState(null);
+  const [cardDetails, setCardDetails] = useState({ cardNumber: '', cardHolder: '', expiryDate: '', cvv: '' });
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const fetchBrowse = useCallback(async () => {
     try {
@@ -44,6 +89,36 @@ export default function StudentDashboard({ activeView }) {
     try { const { data } = await api.get('/student/special-requests'); setRequests(data); } catch (e) {}
   }, []);
 
+  const fetchReviews = useCallback(async (courseId) => {
+    try {
+      const { data } = await api.get(`/student/reviews/${courseId}`);
+      setReviews(data.reviews);
+      setReviewStats(data.stats);
+      setUserHasReviewed(data.userHasReviewed);
+      if (data.userReview) {
+        setNewReview({ rating: data.userReview.rating, comment: data.userReview.comment });
+      } else {
+        setNewReview({ rating: 5, comment: '' });
+      }
+    } catch (e) {}
+  }, []);
+
+  const submitReview = async (courseId) => {
+    try {
+      await api.post('/student/reviews', { courseId, rating: newReview.rating, comment: newReview.comment });
+      toast('Review submitted successfully!', 'success');
+      fetchReviews(courseId);
+    } catch (e) {
+      toast(e.response?.data?.error || 'Failed to submit review', 'error');
+    }
+  };
+
+  const openReviewsModal = (courseId, courseName) => {
+    setModal('reviews');
+    setModalData({ courseId, courseName });
+    fetchReviews(courseId);
+  };
+
   const [loadingView, setLoadingView] = useState(activeView);
 
   useEffect(() => {
@@ -62,21 +137,83 @@ export default function StudentDashboard({ activeView }) {
     if (m[activeView]) {
       m[activeView]().finally(() => setLoading(false));
     }
-  }, [activeView, fetchBrowse, fetchMyCourses, fetchWaitlist, fetchAudit, fetchRequests, loadingView]);
+  }, [activeView, fetchBrowse, fetchMyCourses, fetchWaitlist, fetchAudit, fetchRequests, loadingView, fetchReviews]);
 
   const handleEnroll = async (sectionId) => {
+    // Open payment modal instead of directly enrolling
+    const section = sections.find(s => s.id === sectionId);
+    if (!section) return;
+    
+    // Calculate amount (₹2000 per credit)
+    const amountPerCredit = 2000;
+    const totalAmount = section.credits * amountPerCredit;
+    
+    setModal('payment');
+    setModalData({ 
+      sectionId, 
+      courseName: section.course_name, 
+      courseCode: section.course_code,
+      credits: section.credits,
+      amount: totalAmount,
+      instructor: section.instructor_name
+    });
+    
+    // Fetch payment methods
     try {
-      const { data } = await api.post('/student/enroll', { sectionId });
-      toast(data.message, 'success');
-      if (activeView === 'browse') fetchBrowse();
+      const { data } = await api.get('/student/payment-methods');
+      setPaymentMethods(data.methods);
+    } catch (e) {}
+  };
+
+  const processPayment = async () => {
+    if (!selectedPaymentMethod) {
+      toast('Please select a payment method', 'error');
+      return;
+    }
+    
+    if (selectedPaymentMethod === 'UPI' && !selectedUPIApp) {
+      toast('Please select a UPI app', 'error');
+      return;
+    }
+    
+    if ((selectedPaymentMethod === 'Credit Card' || selectedPaymentMethod === 'Debit Card') && 
+        (!cardDetails.cardNumber || !cardDetails.cardHolder || !cardDetails.expiryDate || !cardDetails.cvv)) {
+      toast('Please fill in all card details', 'error');
+      return;
+    }
+
+    setProcessingPayment(true);
+    
+    try {
+      const { data } = await api.post('/student/process-payment', {
+        sectionId: modalData.sectionId,
+        paymentMethod: selectedPaymentMethod,
+        upiApp: selectedUPIApp,
+        cardDetails
+      });
+      
+      // Show success animation
+      setProcessingPayment(false);
+      setPaymentSuccess(true);
+      setShowConfetti(true);
+      
+      // Hide confetti after 2 seconds
+      setTimeout(() => setShowConfetti(false), 2000);
+      
+      // Close modal and reset after animation
+      setTimeout(() => {
+        setPaymentSuccess(false);
+        setModal(null);
+        setSelectedPaymentMethod(null);
+        setSelectedUPIApp(null);
+        setCardDetails({ cardNumber: '', cardHolder: '', expiryDate: '', cvv: '' });
+        if (activeView === 'browse') fetchBrowse();
+        if (activeView === 'my-courses') fetchMyCourses();
+      }, 2500);
+      
     } catch (e) {
-      const resp = e.response?.data;
-      if (resp?.can_request_override) {
-        setModal('prereq_override');
-        setModalData({ sectionId, missing: resp.missing_prereqs, msg: resp.error });
-      } else {
-        toast(resp?.error || 'Enrollment failed', 'error');
-      }
+      toast(e.response?.data?.error || 'Payment failed', 'error');
+      setProcessingPayment(false);
     }
   };
 
@@ -135,14 +272,37 @@ export default function StudentDashboard({ activeView }) {
                     <div>
                       <div className="course-card-code">{s.course_code} • {s.category}</div>
                       <div className="course-card-name">{s.course_name}</div>
+                      {s.college_name && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                          {s.college_name} • {s.department_name} ({s.department_code})
+                        </div>
+                      )}
                     </div>
+                    {s.avg_rating > 0 && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', fontWeight: 600, color: 'var(--accent-amber)' }}>
+                          {'★'.repeat(Math.round(s.avg_rating))}{'☆'.repeat(5 - Math.round(s.avg_rating))}
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({s.review_count})</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="course-card-meta">
-                    <span><Clock size={14} className="mr-1" /> {s.schedule_time}</span>
-                    <span><User size={14} className="mr-1" /> {s.instructor_name}</span>
-                    <span><Award size={14} className="mr-1" /> {s.credits} Credits</span>
+                    <span><ClockIcon size={14} className="mr-1" /> {s.schedule_time}</span>
+                    <span><UserIcon size={14} className="mr-1" /> {s.instructor_name}</span>
+                    <span><AwardIcon size={14} className="mr-1" /> {s.credits} Credits</span>
                   </div>
                   <div className="course-card-desc" style={{ minHeight: 40 }}>{s.description || 'No description available'}</div>
+                  
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <button 
+                      className="btn btn-ghost btn-sm" 
+                      style={{ flex: 1, fontSize: '0.75rem' }}
+                      onClick={() => openReviewsModal(s.course_id, s.course_name)}
+                    >
+                      {s.avg_rating > 0 ? `${s.avg_rating}★ (${s.review_count} reviews)` : 'No reviews yet'} - View/Add
+                    </button>
+                  </div>
                   
                   {s.prerequisites && (
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 10 }}>
@@ -176,14 +336,19 @@ export default function StudentDashboard({ activeView }) {
                 <div>
                   <div className="course-card-code">{c.course_code} • {c.category}</div>
                   <div className="course-card-name">{c.course_name}</div>
+                  {c.college_name && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                      {c.college_name} • {c.department_name} ({c.department_code})
+                    </div>
+                  )}
                 </div>
                 <span className="badge badge-emerald">Enrolled</span>
               </div>
               <div className="course-card-meta">
-                <span><Clock size={14} className="mr-1" /> {c.schedule_time}</span>
-                <span><DoorOpen size={14} className="mr-1" /> {c.room}</span>
-                <span><User size={14} className="mr-1" /> {c.instructor_name}</span>
-                <span><Award size={14} className="mr-1" /> {c.credits} Credits</span>
+                <span><ClockIcon size={14} className="mr-1" /> {c.schedule_time}</span>
+                <span><DoorOpenIcon size={14} className="mr-1" /> {c.room}</span>
+                <span><UserIcon size={14} className="mr-1" /> {c.instructor_name}</span>
+                <span><AwardIcon size={14} className="mr-1" /> {c.credits} Credits</span>
               </div>
               <button className="btn btn-ghost btn-sm" style={{ width: '100%', color: 'var(--accent-rose)' }} onClick={() => handleDrop(c.section_id)}>
                 Drop Course
@@ -336,6 +501,374 @@ export default function StudentDashboard({ activeView }) {
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={submitOverride}>Submit Request</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {modal === 'reviews' && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+          <div className="modal" style={{ maxWidth: 600 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">Reviews: {modalData.courseName}</h3>
+              <button className="modal-close" onClick={() => setModal(null)}>✕</button>
+            </div>
+            
+            {/* Stats */}
+            <div style={{ padding: '16px 20px', background: 'var(--bg-glass)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 20 }}>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent-amber)' }}>
+                {reviewStats.average > 0 ? reviewStats.average : '-'}
+              </div>
+              <div>
+                <div style={{ fontSize: '1rem', color: 'var(--accent-amber)' }}>
+                  {reviewStats.average > 0 && ('★'.repeat(Math.round(reviewStats.average)) + '☆'.repeat(5 - Math.round(reviewStats.average)))}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  {reviewStats.count} {reviewStats.count === 1 ? 'review' : 'reviews'}
+                </div>
+              </div>
+            </div>
+
+            {/* Add Review Form */}
+            {activeView === 'my-courses' && !userHasReviewed && (
+              <div style={{ padding: 16, borderBottom: '1px solid var(--border-color)' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem' }}>Write a Review</h4>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 6, color: 'var(--text-secondary)' }}>Rating</label>
+                  <div style={{ display: 'flex', gap: 4, fontSize: '1.5rem' }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        onClick={() => setNewReview({ ...newReview, rating: star })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: star <= newReview.rating ? 'var(--accent-amber)' : 'var(--text-muted)' }}
+                      >
+                        {star <= newReview.rating ? '★' : '☆'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: 6, color: 'var(--text-secondary)' }}>Comment (optional)</label>
+                  <textarea
+                    className="form-input"
+                    placeholder="Share your experience with this course..."
+                    value={newReview.comment}
+                    onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
+                    style={{ minHeight: 80 }}
+                  />
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => submitReview(modalData.courseId)}>
+                  Submit Review
+                </button>
+              </div>
+            )}
+
+            {userHasReviewed && activeView === 'my-courses' && (
+              <div style={{ padding: 12, background: 'rgba(16,185,129,0.1)', borderBottom: '1px solid var(--border-color)' }}>
+                <span className="badge badge-emerald">You have reviewed this course</span>
+              </div>
+            )}
+
+            {/* Reviews List */}
+            <div style={{ maxHeight: 300, overflow: 'auto', padding: '0 20px' }}>
+              {reviews.length === 0 ? (
+                <div className="empty-state" style={{ padding: 40 }}>
+                  <p>No reviews yet. Be the first to review!</p>
+                </div>
+              ) : (
+                reviews.map((r) => (
+                  <div key={r.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.student_name}</div>
+                      <div style={{ color: 'var(--accent-amber)', fontSize: '0.9rem' }}>
+                        {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                      </div>
+                    </div>
+                    {r.comment && (
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        "{r.comment}"
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === 'payment' && (
+        <div className="modal-overlay" onClick={(e) => !paymentSuccess && e.target === e.currentTarget && setModal(null)}>
+          <div className="modal" style={{ maxWidth: 500 }}>
+            {!paymentSuccess ? (
+              <>
+            <div className="modal-header">
+              <h3 className="modal-title">Complete Payment</h3>
+              <button className="modal-close" onClick={() => setModal(null)}>✕</button>
+            </div>
+            
+            {/* Payment Summary */}
+            <div style={{ padding: '16px 20px', background: 'var(--bg-glass)', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4 }}>Course</div>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>{modalData.courseCode} - {modalData.courseName}</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4 }}>Instructor</div>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>{modalData.instructor}</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4 }}>Credits</div>
+              <div style={{ fontWeight: 500, marginBottom: 12 }}>{modalData.credits} Credits</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
+                <span style={{ fontWeight: 600 }}>Total Amount</span>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-primary)' }}>₹{modalData.amount}</span>
+              </div>
+            </div>
+
+            {/* Payment Methods */}
+            <div style={{ padding: '16px 20px', maxHeight: 400, overflow: 'auto' }}>
+              <h4 style={{ margin: '0 0 16px 0', fontSize: '0.95rem' }}>Select Payment Method</h4>
+              
+              {paymentMethods.map((method) => (
+                <div key={method.id} style={{ marginBottom: 12 }}>
+                  <button
+                    onClick={() => {
+                      setSelectedPaymentMethod(method.id);
+                      setSelectedUPIApp(null);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 12,
+                      border: selectedPaymentMethod === method.id ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                      borderRadius: 'var(--radius-sm)',
+                      background: selectedPaymentMethod === method.id ? 'rgba(99,102,241,0.05)' : 'var(--bg-elevated)',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <img src={method.icon} alt={method.name} style={{ width: 32, height: 32 }} />
+                    <span style={{ fontWeight: 500 }}>{method.name}</span>
+                    {selectedPaymentMethod === method.id && <span style={{ marginLeft: 'auto', color: 'var(--accent-primary)' }}>✓</span>}
+                  </button>
+                  
+                  {/* UPI Apps */}
+                  {selectedPaymentMethod === 'UPI' && method.id === 'UPI' && (
+                    <div style={{ marginTop: 12, paddingLeft: 12 }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Select UPI App:</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                        {method.apps.map((app) => (
+                          <button
+                            key={app.id}
+                            onClick={() => setSelectedUPIApp(app.id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: 10,
+                              border: selectedUPIApp === app.id ? '2px solid ' + app.color : '1px solid var(--border-color)',
+                              borderRadius: 'var(--radius-sm)',
+                              background: selectedUPIApp === app.id ? app.color + '10' : 'var(--bg-elevated)',
+                              cursor: 'pointer',
+                              fontSize: '0.85rem',
+                              color: selectedUPIApp === app.id ? app.color : 'inherit'
+                            }}
+                          >
+                            <img src={app.icon} alt={app.name} style={{ width: 20, height: 20 }} />
+                            {app.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Card Form */}
+                  {(selectedPaymentMethod === 'Credit Card' || selectedPaymentMethod === 'Debit Card') && 
+                   (method.id === 'Credit Card' || method.id === 'Debit Card') && (
+                    <div style={{ marginTop: 12, paddingLeft: 12 }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12 }}>Enter Card Details:</div>
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        <input
+                          type="text"
+                          placeholder="Card Number"
+                          value={cardDetails.cardNumber}
+                          onChange={(e) => setCardDetails({...cardDetails, cardNumber: e.target.value})}
+                          className="form-input"
+                          maxLength={16}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Card Holder Name"
+                          value={cardDetails.cardHolder}
+                          onChange={(e) => setCardDetails({...cardDetails, cardHolder: e.target.value})}
+                          className="form-input"
+                        />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          <input
+                            type="text"
+                            placeholder="MM/YY"
+                            value={cardDetails.expiryDate}
+                            onChange={(e) => setCardDetails({...cardDetails, expiryDate: e.target.value})}
+                            className="form-input"
+                            maxLength={5}
+                          />
+                          <input
+                            type="password"
+                            placeholder="CVV"
+                            value={cardDetails.cvv}
+                            onChange={(e) => setCardDetails({...cardDetails, cvv: e.target.value})}
+                            className="form-input"
+                            maxLength={3}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setModal(null)} disabled={processingPayment}>Cancel</button>
+              <button 
+                className="btn btn-primary" 
+                onClick={processPayment}
+                disabled={processingPayment || !selectedPaymentMethod}
+              >
+                {processingPayment ? 'Processing...' : `Pay ₹${modalData.amount}`}
+              </button>
+            </div>
+              </>
+            ) : (
+              /* Payment Success Animation */
+              <div style={{ padding: 60, textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+                {/* Confetti Burst */}
+                {showConfetti && (
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                    {[...Array(24)].map((_, i) => {
+                      const angle = (i / 24) * Math.PI * 2;
+                      const distance = 80 + Math.random() * 60;
+                      const tx = Math.cos(angle) * distance;
+                      const ty = Math.sin(angle) * distance;
+                      const colors = ['#4285F4', '#EA4335', '#FBBC04', '#34A853'];
+                      const shapes = ['50%', '0', '2px'];
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            position: 'absolute',
+                            left: '50%',
+                            top: '50%',
+                            width: 6 + Math.random() * 4,
+                            height: 6 + Math.random() * 4,
+                            borderRadius: shapes[i % 3],
+                            background: colors[i % 4],
+                            animation: `confetti${i} 1.2s ease-out forwards`,
+                            animationDelay: `${i * 25}ms`,
+                            transform: 'translate(-50%, -50%) scale(0)'
+                          }}
+                        >
+                          <style>{`
+                            @keyframes confetti${i} {
+                              0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 1; }
+                              20% { transform: translate(-50%, -50%) scale(1) rotate(${i * 20}deg); opacity: 1; }
+                              100% { transform: translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(0.5) rotate(${i * 40}deg); opacity: 0; }
+                            }
+                          `}</style>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                
+                {/* Success Circle with Checkmark */}
+                <div 
+                  style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 24px',
+                    animation: 'successPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+                    boxShadow: '0 20px 40px rgba(16, 185, 129, 0.3)'
+                  }}
+                >
+                  <svg 
+                    width="50" 
+                    height="50" 
+                    viewBox="0 0 50 50" 
+                    fill="none"
+                    style={{ animation: 'checkmarkDraw 0.4s ease-out 0.3s forwards', strokeDasharray: 60, strokeDashoffset: 60 }}
+                  >
+                    <path 
+                      d="M15 25 L22 32 L35 18" 
+                      stroke="white" 
+                      strokeWidth="4" 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                
+                {/* Success Text */}
+                <h3 style={{ 
+                  margin: '0 0 8px 0', 
+                  fontSize: '1.5rem', 
+                  fontWeight: 700,
+                  color: '#10B981',
+                  animation: 'slideUpFade 0.5s ease-out 0.4s forwards',
+                  opacity: 0,
+                  transform: 'translateY(20px)'
+                }}>
+                  Payment Successful!
+                </h3>
+                
+                <p style={{ 
+                  margin: '0 0 4px 0',
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  animation: 'slideUpFade 0.5s ease-out 0.5s forwards',
+                  opacity: 0,
+                  transform: 'translateY(20px)'
+                }}>
+                  ₹{modalData.amount}
+                </p>
+                
+                <p style={{ 
+                  margin: 0,
+                  fontSize: '0.9rem',
+                  color: 'var(--text-muted)',
+                  animation: 'slideUpFade 0.5s ease-out 0.6s forwards',
+                  opacity: 0,
+                  transform: 'translateY(20px)'
+                }}>
+                  Paid to {modalData.instructor}
+                </p>
+                
+                {/* Keyframe styles for success animation */}
+                <style>{`
+                  @keyframes successPop {
+                    0% { transform: scale(0); opacity: 0; }
+                    50% { transform: scale(1.15); }
+                    100% { transform: scale(1); opacity: 1; }
+                  }
+                  @keyframes checkmarkDraw {
+                    to { stroke-dashoffset: 0; }
+                  }
+                  @keyframes slideUpFade {
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                `}</style>
+              </div>
+            )}
           </div>
         </div>
       )}

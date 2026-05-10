@@ -141,6 +141,37 @@ function initializeSchema() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id)
     )`);
+
+    // --- Reviews (Course Ratings & Feedback) ---
+    db.run(`CREATE TABLE IF NOT EXISTS reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      course_id INTEGER NOT NULL,
+      student_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+      comment TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(course_id) REFERENCES courses(id),
+      FOREIGN KEY(student_id) REFERENCES users(id),
+      UNIQUE(course_id, student_id)
+    )`);
+
+    // --- Payments (Course Enrollment Payments) ---
+    db.run(`CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      enrollment_id INTEGER NOT NULL,
+      student_id INTEGER NOT NULL,
+      faculty_id INTEGER NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      payment_method TEXT NOT NULL,
+      upi_app TEXT,
+      status TEXT DEFAULT 'pending',
+      transaction_id TEXT,
+      paid_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(enrollment_id) REFERENCES enrollments(id),
+      FOREIGN KEY(student_id) REFERENCES users(id),
+      FOREIGN KEY(faculty_id) REFERENCES users(id)
+    )`);
   });
 }
 
